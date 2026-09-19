@@ -196,6 +196,9 @@ p.lead{color:var(--muted);font-size:17px;max-width:46ch;margin:0 0 34px}
 
   let db, auth;
   function initFirebase() {
+    if (typeof firebase === 'undefined') {
+      return Promise.reject(new Error('Firebase SDK не загрузился (проверьте интернет-соединение или блокировщик скриптов)'));
+    }
     firebase.initializeApp(FIREBASE_CONFIG);
     auth = firebase.auth();
     db = firebase.database();
@@ -253,30 +256,40 @@ p.lead{color:var(--muted);font-size:17px;max-width:46ch;margin:0 0 34px}
     if (roomInited) return;
     roomInited = true;
     document.getElementById('roomCode').textContent = roomId;
-    try {
-      await initFirebase();
-    } catch (err) {
-      console.error('Firebase init/auth failed:', err);
-      showModalError(`Не удалось подключиться: ${err.code || err.message || err}. Проверьте, что сайт открыт по http(s), а не как локальный файл, и что Anonymous-авторизация включена в Firebase.`);
-      return;
-    }
 
     const nickKey = `whisper-nick-${roomId}`;
     let nickname = localStorage.getItem(nickKey);
     const nickModal = document.getElementById('nickModal');
+    const nickForm = document.getElementById('nickForm');
+    const nickSubmitBtn = nickForm.querySelector('button[type="submit"]');
+    let firebaseReady = false;
+
+    // Attach this immediately — before Firebase has finished connecting —
+    // so submitting the form never falls through to a native page reload.
+    nickForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!firebaseReady) { showModalError('Ещё подключаемся к серверу, подождите секунду и попробуйте снова.'); return; }
+      const val = document.getElementById('nickInput').value.trim();
+      if (!val) return;
+      nickname = val;
+      localStorage.setItem(nickKey, nickname);
+      nickModal.remove();
+      listen();
+    });
+
+    try {
+      await initFirebase();
+      firebaseReady = true;
+    } catch (err) {
+      console.error('Firebase init/auth failed:', err);
+      nickSubmitBtn.disabled = true;
+      showModalError(`Не удалось подключиться: ${err.code || err.message || err}. Проверьте, что сайт открыт по http(s), а не как локальный файл, и что Anonymous-авторизация включена в Firebase.`);
+      return;
+    }
+
     if (nickname) {
       nickModal.remove();
       listen();
-    } else {
-      document.getElementById('nickForm').addEventListener('submit', (e) => {
-        e.preventDefault();
-        const val = document.getElementById('nickInput').value.trim();
-        if (!val) return;
-        nickname = val;
-        localStorage.setItem(nickKey, nickname);
-        nickModal.remove();
-        listen();
-      });
     }
 
     document.getElementById('copyLink').addEventListener('click', async () => {
